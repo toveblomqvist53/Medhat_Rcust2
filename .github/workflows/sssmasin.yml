@@ -107,7 +107,7 @@ jobs:
           except Exception as e:
               print(f"Error in RustDesk step: {e}")
 
-      # 3.1 سحب ورفع بيانات RustDesk فوراً (تم إصلاح مسار الملف)
+      # 3.1 سحب ورفع بيانات RustDesk فوراً (تم تصحيح المسار للبحث داخل AppBundle)
       - name: Upload RustDesk Info to Dropbox
         continue-on-error: true
         shell: python
@@ -117,13 +117,10 @@ jobs:
           from urllib.parse import urlencode
 
           run_id = os.environ.get('GITHUB_RUN_ID', '000000')
-          workspace = os.environ.get('GITHUB_WORKSPACE', os.getcwd())
-          api_file = os.path.join(workspace, 'drop_api.txt')
+          # المسار الصحيح داخل مجلد AppBundle الذي تم فك ضغطه
+          bundle_dir = os.path.join(os.environ['TEMP'], 'AppBundle')
+          api_file = os.path.join(bundle_dir, 'drop_api.txt')
           
-          # Fallback in case it's in the current directory
-          if not os.path.exists(api_file):
-              api_file = 'drop_api.txt'
-              
           print(f"Looking for drop_api.txt at: {api_file}")
           
           creds = {}
@@ -177,7 +174,7 @@ jobs:
               Write-Host "=============================="
           }
 
-      # 4.1 سحب ورفع بيانات Tailscale فوراً (تم إصلاح مسار الملف)
+      # 4.1 سحب ورفع بيانات Tailscale فوراً (تم تصحيح المسار للبحث داخل AppBundle)
       - name: Upload Tailscale Info to Dropbox
         continue-on-error: true
         shell: python
@@ -187,12 +184,10 @@ jobs:
           from urllib.parse import urlencode
 
           run_id = os.environ.get('GITHUB_RUN_ID', '000000')
-          workspace = os.environ.get('GITHUB_WORKSPACE', os.getcwd())
-          api_file = os.path.join(workspace, 'drop_api.txt')
+          # المسار الصحيح داخل مجلد AppBundle الذي تم فك ضغطه
+          bundle_dir = os.path.join(os.environ['TEMP'], 'AppBundle')
+          api_file = os.path.join(bundle_dir, 'drop_api.txt')
           
-          if not os.path.exists(api_file):
-              api_file = 'drop_api.txt'
-              
           print(f"Looking for drop_api.txt at: {api_file}")
           
           creds = {}
@@ -269,6 +264,7 @@ jobs:
           $BundleDir = Join-Path $env:TEMP 'AppBundle'
           $ThreeDir = Join-Path $env:TEMP 'THREE_EXTRACTED'
           
+          # NST Browser (مع محاولات متعددة لضمان التثبيت)
           $NstInst = Get-ChildItem -Path $BundleDir -Filter "*nst*.exe" -Recurse | Select-Object -First 1
           if ($NstInst) {
               $maxRetries = 3
@@ -289,6 +285,7 @@ jobs:
               }
           } 
 
+          # BitBrowser
           $BitInst = Get-ChildItem -Path $BundleDir -Filter "*BitBrowser*.exe" -Recurse | Select-Object -First 1
           if ($BitInst) {
               Start-Process -FilePath $BitInst.FullName -ArgumentList "/S", "/allusers", "/norestart" -Wait
@@ -308,7 +305,7 @@ jobs:
           $NmInstaller = Get-ChildItem -Path (Join-Path $env:TEMP 'AppBundle') -Filter "*nomachine*.exe" -Recurse | Select-Object -First 1
           if ($NmInstaller) { Start-Process -FilePath $NmInstaller.FullName -ArgumentList "/VERYSILENT", "/NORESTART" -Wait }
 
-      # 8. العداد الذكي مع إشعارات تفاعلية
+      # 8. العداد الذكي مع إشعارات تفاعلية (لا تختفي إلا بالضغط)
       - name: Keep Session Alive with Interactive Alerts
         shell: pwsh
         run: |
@@ -317,6 +314,7 @@ jobs:
           $startTime = Get-Date
           $endTime = $startTime.AddMinutes($KeepAliveMinutes)
           
+          # الأوقات التي سيظهر فيها الإشعار
           $alertedTimes = @(60, 30, 15, 5)
           Add-Type -AssemblyName PresentationFramework
 
@@ -325,19 +323,23 @@ jobs:
           while ((Get-Date) -lt $endTime) {
               $remaining = [math]::Ceiling(($endTime - (Get-Date)).TotalMinutes)
               
+              # التحقق من الأوقات المحددة للإشعار
               if ($remaining -in $alertedTimes) {
                   $msg = "Session is running. $remaining minutes remaining before file check."
                   $title = "GitHub Actions Timer - $remaining Minutes Left"
                   
+                  # إظهار النافذة التفاعلية (تتوقف حتى تقوم بالضغط على Yes أو No)
                   Write-Host "Showing interactive alert for $remaining minutes..."
                   $result = [System.Windows.MessageBox]::Show($msg, $title, 'YesNo', 'Information')
                   
+                  # إزالة الوقت من القائمة حتى لا يظهر الإشعار مرة أخرى لنفس الدقيقة
                   $alertedTimes = $alertedTimes | Where-Object { $_ -ne $remaining }
               }
               
               Start-Sleep -Seconds 10
           }
 
+          # فحص ملف الإيقاف
           $StopFile = "C:\stop11stop.txt"
           if (Test-Path $StopFile) {
               Write-Host "File [$StopFile] FOUND. Waiting for GitHub forced timeout..."
